@@ -2,11 +2,16 @@ import React, { useEffect } from "react";
 import type { Comment, InlineTarget } from "../types.js";
 import { useDocumentFrame } from "../hooks/useDocumentFrame.js";
 
+export interface DocumentFrameApi {
+  reload: () => void;
+  scrollToRrId: (rrId: string) => boolean;
+}
+
 interface Props {
   comments: Comment[];
   onPickTarget: (t: InlineTarget) => void;
   reloadSignal: number;
-  frameApiRef?: React.MutableRefObject<{ reload: () => void } | null>;
+  frameApiRef?: React.MutableRefObject<DocumentFrameApi | null>;
 }
 
 export function DocumentFrame({
@@ -15,13 +20,13 @@ export function DocumentFrame({
   reloadSignal,
   frameApiRef,
 }: Props) {
-  const { frameRef, html, exists, reload, instrument, applyMarkers } =
+  const { frameRef, html, exists, reload, instrument, applyMarkers, scrollToRrId } =
     useDocumentFrame({ comments, onPickTarget });
 
-  // Expose reload to parent so SSE document_updated can trigger a refresh.
+  // Expose reload + scroll to parent (SSE refresh, comment-click scroll).
   useEffect(() => {
-    if (frameApiRef) frameApiRef.current = { reload };
-  }, [frameApiRef, reload]);
+    if (frameApiRef) frameApiRef.current = { reload, scrollToRrId };
+  }, [frameApiRef, reload, scrollToRrId]);
 
   useEffect(() => {
     if (reloadSignal > 0) void reload();

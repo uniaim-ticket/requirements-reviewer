@@ -14,6 +14,11 @@ const FRAME_CSS = `
   font-size: 11px; padding: 2px 6px; cursor: pointer; z-index: 99999;
   font-family: system-ui, sans-serif;
 }
+[data-rr-id].rr-flash { animation: rr-flash-kf 1.6s ease-out; }
+@keyframes rr-flash-kf {
+  0% { background: rgba(37, 99, 235, 0.45); box-shadow: 0 0 0 3px rgba(37,99,235,0.45); }
+  100% { background: transparent; box-shadow: none; }
+}
 `;
 
 // Map an element to a TargetType based on its tag/class.
@@ -131,5 +136,29 @@ export function useDocumentFrame({ comments, onPickTarget }: UseDocumentFrameArg
     applyMarkers();
   }, [applyMarkers, html]);
 
-  return { frameRef, html, idAttr, exists, reload, instrument, applyMarkers };
+  // Scroll the iframe to the element bearing the given rr-id and flash it.
+  const scrollToRrId = useCallback(
+    (rrId: string) => {
+      const doc = frameRef.current?.contentDocument;
+      if (!doc) return false;
+      const el = doc.querySelector(`[${idAttr}="${rrId}"]`) as HTMLElement | null;
+      if (!el) return false;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("rr-flash");
+      window.setTimeout(() => el.classList.remove("rr-flash"), 1600);
+      return true;
+    },
+    [idAttr],
+  );
+
+  return {
+    frameRef,
+    html,
+    idAttr,
+    exists,
+    reload,
+    instrument,
+    applyMarkers,
+    scrollToRrId,
+  };
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from "react";
-import { DocumentFrame } from "./components/DocumentFrame.js";
+import { DocumentFrame, type DocumentFrameApi } from "./components/DocumentFrame.js";
 import { DocumentBar } from "./components/DocumentBar.js";
 import { GenerateProgress } from "./components/GenerateProgress.js";
 import { GlobalCommentBox } from "./components/GlobalCommentBox.js";
@@ -24,7 +24,20 @@ export function App() {
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [docReloadSignal, setDocReloadSignal] = useState(0);
   const [docUpdated, setDocUpdated] = useState(false);
-  const frameApiRef = useRef<{ reload: () => void } | null>(null);
+  const frameApiRef = useRef<DocumentFrameApi | null>(null);
+
+  // Scroll the document iframe to a comment's target element (works for any
+  // status, incl. resolved). If the iframe hasn't loaded the element yet,
+  // reload first and retry shortly after.
+  const scrollToComment = useCallback((rrId: string | null) => {
+    if (!rrId) return;
+    const api = frameApiRef.current;
+    if (!api) return;
+    if (!api.scrollToRrId(rrId)) {
+      api.reload();
+      window.setTimeout(() => frameApiRef.current?.scrollToRrId(rrId), 400);
+    }
+  }, []);
 
   // When the worker finishes a job (busy -> idle), refresh doc + comments and
   // show the result + "updated" pill.
@@ -187,6 +200,7 @@ export function App() {
             comments={comments.comments}
             onEnqueue={comments.enqueue}
             onDelete={comments.remove}
+            onScrollTo={scrollToComment}
           />
           <QueuePanel
             jobs={queue.jobs}

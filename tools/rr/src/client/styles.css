@@ -133,6 +133,13 @@ button.danger { color: #b91c1c; border-color: #fca5a5; }
   margin-bottom: 0.5rem; font-size: 0.85rem;
 }
 .comment-row, .job-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.comment-item.clickable { cursor: pointer; }
+.comment-item.clickable:hover { border-color: #93c5fd; background: #f8fafc; }
+.comment-item.resolved { opacity: 0.7; }
+.show-resolved {
+  display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem;
+  color: #6b7280; margin: 0.25rem 0 0.5rem;
+}
 .comment-selected { color: #6b7280; font-style: italic; margin: 0.25rem 0; }
 .comment-body { margin: 0.25rem 0; }
 .comment-actions, .job-actions { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
