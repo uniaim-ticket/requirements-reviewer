@@ -114,6 +114,27 @@ export class DocumentService {
     return doc;
   }
 
+  // ---- per-document Claude session + context digest (for resume / recall) ----
+  /** The latest Claude session id for a document, to --resume by default. */
+  getDocSession(docId: string): string | null {
+    return this.getState(`session:${docId}`);
+  }
+  setDocSession(docId: string, sessionId: string | null): void {
+    if (sessionId) this.setState(`session:${docId}`, sessionId);
+  }
+  /** A rolling, human-readable digest of prior decisions for this document. */
+  getDigest(docId: string): string {
+    return this.getState(`digest:${docId}`) ?? "";
+  }
+  appendDigest(docId: string, entry: string): void {
+    const prev = this.getDigest(docId);
+    // Keep the digest bounded so it can't grow unbounded across many comments.
+    const merged = (prev ? prev + "\n" : "") + entry;
+    const lines = merged.split("\n");
+    const trimmed = lines.slice(-40).join("\n");
+    this.setState(`digest:${docId}`, trimmed);
+  }
+
   /** True if the document's HTML file exists on disk and is non-empty. */
   private htmlExistsFor(rel: string): boolean {
     const abs = path.resolve(this.root, rel);

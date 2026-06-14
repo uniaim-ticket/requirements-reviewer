@@ -26,6 +26,13 @@ export interface RrConfig {
      * structured progress (assistant text / tool use) in the UI. Default true.
      */
     stream_progress: boolean;
+    /**
+     * Reuse the previous Claude session per document by default (--resume), so
+     * later comments are processed with the deepened understanding from earlier
+     * ones. Default true. When a session can't be resumed, rr falls back to
+     * injecting a context digest into the prompt instead.
+     */
+    resume_session: boolean;
   };
   queue: {
     auto_run: boolean;
@@ -55,6 +62,7 @@ export const DEFAULT_CONFIG: RrConfig = {
     permission_mode: "acceptEdits",
     extra_args: [],
     stream_progress: true,
+    resume_session: true,
   },
   queue: {
     auto_run: false,

@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   incomplete_reason TEXT,
   session_id TEXT,
   attempt INTEGER NOT NULL DEFAULT 1,
+  used_resume INTEGER NOT NULL DEFAULT 0,
+  usage_json TEXT,
+  force_fresh INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   started_at TEXT,
   completed_at TEXT
@@ -100,5 +103,14 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!hasColumn(db, "jobs", "attempt")) {
     db.exec("ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!hasColumn(db, "jobs", "used_resume")) {
+    db.exec("ALTER TABLE jobs ADD COLUMN used_resume INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn(db, "jobs", "usage_json")) {
+    db.exec("ALTER TABLE jobs ADD COLUMN usage_json TEXT");
+  }
+  if (!hasColumn(db, "jobs", "force_fresh")) {
+    db.exec("ALTER TABLE jobs ADD COLUMN force_fresh INTEGER NOT NULL DEFAULT 0");
   }
 }

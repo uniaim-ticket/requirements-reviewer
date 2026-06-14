@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { apiUrl } from "../api.js";
 import type { DocumentInfo } from "../types.js";
 
 interface Props {
@@ -40,6 +41,18 @@ export function DocumentBar({
 
   // Unrendered = no HTML on disk yet (e.g. failed/aborted generation).
   const unrendered = documents.filter((d) => d.hasHtml === false);
+  const current = documents.find((d) => d.id === currentId);
+  const canDownload = Boolean(current && current.hasHtml !== false);
+
+  // Download the currently displayed document's HTML via the server endpoint.
+  const download = () => {
+    const a = document.createElement("a");
+    a.href = apiUrl("document/download");
+    a.download = `${current?.slug ?? "document"}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
   const deleteOne = async (d: DocumentInfo) => {
     const hadHtml = d.hasHtml !== false;
@@ -83,6 +96,17 @@ export function DocumentBar({
           onClick={() => setOpen((v) => !v)}
         >
           ＋ 新しい要件
+        </button>
+        <button
+          disabled={!canDownload}
+          onClick={download}
+          title={
+            canDownload
+              ? "表示中の要件HTMLをダウンロード"
+              : "ダウンロードできるHTMLがありません（未生成）"
+          }
+        >
+          ⬇ ダウンロード
         </button>
         <button disabled={generating} onClick={() => setManage((v) => !v)}>
           管理

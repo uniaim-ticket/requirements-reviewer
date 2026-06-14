@@ -7,6 +7,7 @@ import type {
   Job,
   JobStatus,
   QueueState,
+  TokenUsage,
 } from "../../shared/types.js";
 
 function now(): string {
@@ -14,6 +15,13 @@ function now(): string {
 }
 function genId(prefix: string): string {
   return `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
+}
+function safeParseUsage(s: string): TokenUsage | null {
+  try {
+    return JSON.parse(s) as TokenUsage;
+  } catch {
+    return null;
+  }
 }
 
 interface JobRow {
@@ -33,6 +41,9 @@ interface JobRow {
   incomplete_reason: string | null;
   session_id: string | null;
   attempt: number;
+  used_resume: number;
+  usage_json: string | null;
+  force_fresh: number;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -124,6 +135,9 @@ export class QueueService {
       incompleteReason: r.incomplete_reason ?? null,
       sessionId: r.session_id ?? null,
       attempt: r.attempt ?? 1,
+      usedResume: Boolean(r.used_resume),
+      usage: r.usage_json ? safeParseUsage(r.usage_json) : null,
+      forceFresh: Boolean(r.force_fresh),
       createdAt: r.created_at,
       startedAt: r.started_at,
       completedAt: r.completed_at,
@@ -245,13 +259,16 @@ export class QueueService {
       needsFollowUp?: boolean;
       incompleteReason?: string | null;
       sessionId?: string | null;
+      usage?: TokenUsage | null;
+      usedResume?: boolean;
     },
   ): void {
     this.db
       .prepare(
         `UPDATE jobs SET status = 'completed', completed_at = ?, claude_status = ?,
          claude_summary = ?, claude_raw_output = ?, claude_comment_for_reviewer = ?, diff_text = ?,
-         needs_follow_up = ?, incomplete_reason = ?, session_id = ?
+         needs_follow_up = ?, incomplete_reason = ?, session_id = ?,
+         used_resume = ?, usage_json = ?
          WHERE id = ?`,
       )
       .run(
@@ -264,6 +281,8 @@ export class QueueService {
         data.needsFollowUp ? 1 : 0,
         data.incompleteReason ?? null,
         data.sessionId ?? null,
+        data.usedResume ? 1 : 0,
+        data.usage ? JSON.stringify(data.usage) : null,
         jobId,
       );
     // Only mark comments applied when the run looks complete; if it stopped
@@ -300,15 +319,17 @@ export class QueueService {
     if (!job) return null;
     if (job.status === "running" || job.status === "queued") return job;
     const sessionId = mode === "continue" ? job.sessionId : null;
+    // "fresh" = explicit start-over: never resume (not even the doc session).
+    const forceFresh = mode === "fresh" ? 1 : 0;
     const pos = this.maxPosition() + 1;
     this.db
       .prepare(
         `UPDATE jobs SET status = 'queued', position = ?, attempt = attempt + 1,
-         session_id = ?, error_message = NULL, incomplete_reason = NULL,
+         session_id = ?, force_fresh = ?, error_message = NULL, incomplete_reason = NULL,
          started_at = NULL, completed_at = NULL
          WHERE id = ?`,
       )
-      .run(pos, sessionId, jobId);
+      .run(pos, sessionId, forceFresh, jobId);
     // Put the comments back into the queued state.
     const cids = this.db
       .prepare("SELECT comment_id FROM job_comments WHERE job_id = ?")

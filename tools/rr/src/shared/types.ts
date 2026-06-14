@@ -43,6 +43,16 @@ export interface Comment {
   updatedAt: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  totalInputTokens: number;
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
+}
+
 export interface Job {
   id: string;
   documentId: string;
@@ -67,6 +77,12 @@ export interface Job {
   sessionId: string | null;
   /** 1 for the first run; incremented on each re-run/continue. */
   attempt: number;
+  /** Whether this run resumed a prior Claude session (--resume). */
+  usedResume: boolean;
+  /** Token usage from the run, if available. */
+  usage: TokenUsage | null;
+  /** When true, this run must NOT resume any session (explicit "start over"). */
+  forceFresh: boolean;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;

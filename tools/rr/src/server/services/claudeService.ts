@@ -2,7 +2,12 @@ import { spawn, execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { RrConfig } from "../config.js";
-import type { ClaudeStatus, Comment, TargetType } from "../../shared/types.js";
+import type {
+  ClaudeStatus,
+  Comment,
+  TargetType,
+  TokenUsage,
+} from "../../shared/types.js";
 import { extractTarget } from "./rrIdService.js";
 
 export interface PreflightResult {
@@ -129,6 +134,8 @@ export interface ClaudeResult {
    * for partially_applied / needs_human_review / conflicted.
    */
   incompleteReason: string | null;
+  /** Token usage from the final result event (for display / context budgeting). */
+  usage: TokenUsage | null;
 }
 
 function readPrompt(root: string, name: string): string {
@@ -158,6 +165,7 @@ export function buildApplyPrompt(
   config: RrConfig,
   documentHtml: string,
   comment: Comment,
+  priorContext?: string,
 ): string {
   const template = readPrompt(root, "apply_comment.md");
   let targetHtml = "";
@@ -187,6 +195,22 @@ export function buildApplyPrompt(
   let out = template;
   for (const [key, val] of Object.entries(replacements)) {
     out = out.replaceAll(`{{${key}}}`, val);
+  }
+  // Always steer toward a whole-document review (works even for older
+  // .rr/prompts/apply_comment.md that lacked this guidance). The target HTML
+  // below is only the starting point — Claude has Read access to the full file.
+  out +=
+    `\n\n【重要】まず ${config.document.path} の全体を読み込み、文書全体の構成・前提・用語・整合性を確認した上で対応してください。` +
+    "指摘箇所だけを局所的に直すのではなく、その変更で整合性が崩れる関連箇所（他の記述・表・前提・章のつながり・用語統一・確定/推測/未確認の区分）も全体を見渡して併せて修正してください。" +
+    "ただし指摘と無関係な箇所を不必要に書き換えないでください。";
+  // When we can't --resume the prior session, prepend a digest of earlier
+  // decisions so Claude works with the accumulated understanding of the doc.
+  if (priorContext && priorContext.trim()) {
+    out =
+      "【これまでの検討の要約（過去のレビュー対応で蓄積された文脈）】\n" +
+      priorContext.trim() +
+      "\n\n上記を踏まえた上で、以下の作業を行ってください。\n\n" +
+      out;
   }
   return out;
 }
@@ -221,7 +245,10 @@ const JSON_BLOCK = /\{[\s\S]*\}/;
 
 function parseResult(
   raw: string,
-): Omit<ClaudeResult, "rawOutput" | "pid" | "sessionId" | "incompleteReason"> {
+): Omit<
+  ClaudeResult,
+  "rawOutput" | "pid" | "sessionId" | "incompleteReason" | "usage"
+> {
   const match = raw.match(JSON_BLOCK);
   if (match) {
     try {
@@ -256,6 +283,38 @@ export interface RunOptions {
   onProgress?: (line: string) => void;
   /** Resume a prior Claude Code session (--resume) to continue where it left off. */
   resumeSessionId?: string;
+}
+
+/** Extract token usage from a stream-json "result" event. */
+function parseUsage(j: Record<string, unknown>): TokenUsage | null {
+  const u = j.usage as Record<string, number> | undefined;
+  if (!u) return null;
+  const input = Number(u.input_tokens ?? 0);
+  const cacheRead = Number(u.cache_read_input_tokens ?? 0);
+  const cacheCreate = Number(u.cache_creation_input_tokens ?? 0);
+  const output = Number(u.output_tokens ?? 0);
+
+  // contextWindow / maxOutputTokens live under modelUsage[<model>].
+  let contextWindow: number | null = null;
+  let maxOutputTokens: number | null = null;
+  const mu = j.modelUsage as Record<string, Record<string, number>> | undefined;
+  if (mu) {
+    const first = Object.values(mu)[0];
+    if (first) {
+      contextWindow = Number(first.contextWindow ?? 0) || null;
+      maxOutputTokens = Number(first.maxOutputTokens ?? 0) || null;
+    }
+  }
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    cacheReadInputTokens: cacheRead,
+    cacheCreationInputTokens: cacheCreate,
+    // Tokens occupying the context window = fresh input + cached input.
+    totalInputTokens: input + cacheRead + cacheCreate,
+    contextWindow,
+    maxOutputTokens,
+  };
 }
 
 /** Format a single stream-json event into a human-readable progress line. */
@@ -327,7 +386,35 @@ function formatToolUse(name: string, input: Record<string, unknown>): string {
  * Run the configured agent command with `-p <prompt>`. Returns the parsed
  * result. Rejects on non-zero exit or timeout.
  */
-export function runClaude(
+/**
+ * Run claude, with automatic fallback when a --resume target is invalid: if
+ * resuming a session fails (e.g. the session no longer exists), retry once
+ * WITHOUT --resume so the work still gets done as a fresh session.
+ */
+export async function runClaude(
+  config: RrConfig,
+  root: string,
+  prompt: string,
+  opts: RunOptions = {},
+): Promise<ClaudeResult> {
+  try {
+    return await runClaudeOnce(config, root, prompt, opts);
+  } catch (err) {
+    if (opts.resumeSessionId && !opts.signal?.aborted) {
+      const msg = err instanceof Error ? err.message : String(err);
+      opts.onProgress?.(
+        `⚠️ セッション再開に失敗しました（${msg.slice(0, 80)}）。新規セッションで再実行します。`,
+      );
+      return runClaudeOnce(config, root, prompt, {
+        ...opts,
+        resumeSessionId: undefined,
+      });
+    }
+    throw err;
+  }
+}
+
+function runClaudeOnce(
   config: RrConfig,
   root: string,
   prompt: string,
@@ -372,6 +459,7 @@ export function runClaude(
     let sessionId: string | null = null;
     let stopReason: string | null = null;
     let resultIsError = false;
+    let usage: TokenUsage | null = null;
     const timeoutMs = config.agent.timeout_seconds * 1000;
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
@@ -401,6 +489,7 @@ export function runClaude(
         if (typeof j.result === "string") resultText = j.result as string;
         if (j.is_error) resultIsError = true;
         if (typeof j.stop_reason === "string") stopReason = j.stop_reason as string;
+        usage = parseUsage(j) ?? usage;
       }
       const progress = formatStreamEvent(j);
       if (progress) opts.onProgress?.(progress);
@@ -469,6 +558,7 @@ export function runClaude(
         pid: child.pid ?? null,
         sessionId,
         incompleteReason,
+        usage,
       });
     });
   });

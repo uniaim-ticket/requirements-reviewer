@@ -182,6 +182,9 @@ export class GenerateService {
         this.push("出力を整形し、レビューIDを付与しています...");
         if (this.config.review.auto_inject_ids) this.docs.injectIdsOnDisk();
         this.docs.syncFromDisk();
+        // Remember the generation session so the FIRST review comment can
+        // --resume it (Claude already understands the doc it just produced).
+        if (result.sessionId) this.docs.setDocSession(doc.id, result.sessionId);
         const updated = this.docs.getInfo()!;
         this.status.phase = "completed";
         this.status.endedAt = Date.now();

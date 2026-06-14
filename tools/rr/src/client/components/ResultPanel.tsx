@@ -48,7 +48,49 @@ export function ResultPanel({ job, onRerun }: Props) {
         {job.attempt > 1 && (
           <span className="claude-status">試行 {job.attempt}</span>
         )}
+        <span className="claude-status" title="セッション再開（--resume）で実行したか">
+          {job.usedResume ? "🔁 resume" : "🆕 new"}
+        </span>
       </div>
+
+      {job.usage && (
+        <div className="token-usage">
+          {(() => {
+            const u = job.usage;
+            const pct = u.contextWindow
+              ? Math.round((u.totalInputTokens / u.contextWindow) * 100)
+              : null;
+            return (
+              <>
+                <div className="token-line">
+                  入力 {u.totalInputTokens.toLocaleString()}
+                  {u.contextWindow
+                    ? ` / ${u.contextWindow.toLocaleString()} (${pct}%)`
+                    : ""}{" "}
+                  ・ 出力 {u.outputTokens.toLocaleString()}
+                  {u.maxOutputTokens
+                    ? ` / ${u.maxOutputTokens.toLocaleString()}`
+                    : ""}
+                </div>
+                {pct !== null && (
+                  <div className="token-bar">
+                    <div
+                      className={`token-bar-fill ${pct >= 85 ? "danger" : pct >= 60 ? "warn" : ""}`}
+                      style={{ width: `${Math.min(100, pct)}%` }}
+                    />
+                  </div>
+                )}
+                <div className="token-sub">
+                  うちキャッシュ読込 {u.cacheReadInputTokens.toLocaleString()}
+                  {u.maxOutputTokens
+                    ? ` ・ 1回の最大出力 ${u.maxOutputTokens.toLocaleString()} tokens`
+                    : ""}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {incomplete && (
         <div className="result-block incomplete">

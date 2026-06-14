@@ -181,7 +181,17 @@ button.danger { color: #b91c1c; border-color: #fca5a5; }
   display: inline-block; background: #f59e0b; color: #111827;
   padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;
 }
-.result-meta { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+.result-meta { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.token-usage { margin: 0.25rem 0 0.5rem; font-size: 0.78rem; color: #374151; }
+.token-line { font-variant-numeric: tabular-nums; }
+.token-sub { color: #9ca3af; font-size: 0.72rem; margin-top: 0.15rem; }
+.token-bar {
+  height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden;
+  margin: 0.25rem 0;
+}
+.token-bar-fill { height: 100%; background: #3b82f6; transition: width 0.3s; }
+.token-bar-fill.warn { background: #f59e0b; }
+.token-bar-fill.danger { background: #ef4444; }
 .result-block { margin: 0.5rem 0; font-size: 0.85rem; }
 .result-block.error { color: #991b1b; }
 .result-block.incomplete {

@@ -17,6 +17,29 @@ export function documentRoutes(app: FastifyInstance, ctx: AppContext): void {
     };
   });
 
+  // Download the current document's HTML as a file attachment.
+  app.get("/api/document/download", async (_req, reply) => {
+    if (!ctx.docs.exists()) {
+      return reply.status(404).send({ error: "成果物がありません" });
+    }
+    const info = ctx.docs.getInfo();
+    const html = ctx.docs.readHtml();
+    const slug = info?.slug ?? "document";
+    const filename = `${slug}.html`;
+    // The quoted `filename=` must be ASCII-only (non-ASCII chars are an invalid
+    // HTTP header value). Use an ASCII fallback there, and carry the real
+    // (possibly Japanese) name in RFC 5987 `filename*` which browsers prefer.
+    const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_");
+    const encoded = encodeURIComponent(filename);
+    reply
+      .header("Content-Type", "text/html; charset=utf-8")
+      .header(
+        "Content-Disposition",
+        `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`,
+      )
+      .send(html);
+  });
+
   // List all requirement documents (importing any new on-disk HTML files).
   app.get("/api/documents", async () => {
     ctx.docs.scanDisk();

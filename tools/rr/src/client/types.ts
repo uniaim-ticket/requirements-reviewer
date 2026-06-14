@@ -15,6 +15,7 @@ export type {
   GeneratePhase,
   GenerateStatus,
   JobProgress,
+  TokenUsage,
 } from "../shared/types.js";
 
 export interface DocumentResponse {

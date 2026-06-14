@@ -84,25 +84,56 @@ export class WorkerService {
         this.queue.markFailed(job.id, "ジョブに紐づくコメントがありません");
         return;
       }
+      const docId = job.documentId;
+      // Resume strategy — resume by DEFAULT; only skip resume when explicitly
+      // requested ("もう一度実行（最初から）" sets forceFresh) or when the
+      // config disables it.
+      //  - "continue" button   → resume this job's own (interrupted) session.
+      //  - normal new comment   → resume the document's latest session so the
+      //                           accumulated understanding carries over.
+      //  - forceFresh / no session → run fresh (inject a context digest).
       const continuing = Boolean(job.sessionId);
-      this.pushProgress(
-        job.id,
-        continuing
-          ? `前回の続きから再開します（試行 ${job.attempt}）: 「${comment.comment.slice(0, 40)}」`
-          : `コメントを反映します: 「${comment.comment.slice(0, 40)}」`,
-      );
-      // When continuing, ask Claude to finish the unfinished work via --resume;
-      // otherwise build the normal apply prompt from the comment.
+      const docSession = this.docs.getDocSession(docId);
+      const resumeEnabled = this.config.agent.resume_session && !job.forceFresh;
+      const resumeId = continuing
+        ? job.sessionId ?? undefined
+        : resumeEnabled
+          ? docSession ?? undefined
+          : undefined;
+      const usingDigest = !resumeId; // recall context another way when not resuming
+
+      if (continuing) {
+        this.pushProgress(
+          job.id,
+          `🔁 前回の続きから再開します（試行 ${job.attempt}, resume=${job.sessionId}）: 「${comment.comment.slice(0, 40)}」`,
+        );
+      } else if (resumeId) {
+        this.pushProgress(
+          job.id,
+          `🔁 これまでのセッションを再開して反映します（resume=${resumeId}）: 「${comment.comment.slice(0, 40)}」`,
+        );
+      } else {
+        const digest = this.docs.getDigest(docId);
+        this.pushProgress(
+          job.id,
+          (digest
+            ? "🧠 過去の検討要約を文脈として与えて反映します: "
+            : "🆕 新規セッションで反映します: ") +
+            `「${comment.comment.slice(0, 40)}」`,
+        );
+      }
+
+      const digest = usingDigest ? this.docs.getDigest(docId) : "";
       const prompt = continuing
         ? "前回の作業が途中で終わった可能性があります。これまでの変更を確認し、" +
           "まだ反映されていない指摘や未完了の編集を完了させてください。" +
           "完了したら、これまでと同じJSON形式（status/summary/changedRrIds/commentForReviewer/needsFollowUp）で結果を返してください。"
-        : buildApplyPrompt(this.root, this.config, html, comment);
+        : buildApplyPrompt(this.root, this.config, html, comment, digest);
       const result = await runClaude(this.config, this.root, prompt, {
         signal: abort.signal,
         onPid: (pid) => this.queue.markStarted(job.id, pid),
         onProgress: (line) => this.pushProgress(job.id, line),
-        resumeSessionId: continuing ? job.sessionId ?? undefined : undefined,
+        resumeSessionId: resumeId,
       });
       this.pushProgress(job.id, "差分を確認しています...");
 
@@ -110,12 +141,33 @@ export class WorkerService {
       const changed = this.docs.syncFromDisk();
       const diff = computeDiff(this.root, this.docs.absPath(), backupPath);
 
+      // Surface token usage so the reviewer can see how full the context is.
+      if (result.usage) {
+        const u = result.usage;
+        const ctx = u.contextWindow
+          ? ` / コンテキスト約 ${Math.round((u.totalInputTokens / u.contextWindow) * 100)}% (${u.totalInputTokens}/${u.contextWindow})`
+          : "";
+        const maxOut = u.maxOutputTokens ? `, 上限出力 ${u.maxOutputTokens}` : "";
+        this.pushProgress(
+          job.id,
+          `📊 トークン: 入力 ${u.totalInputTokens}（うちキャッシュ ${u.cacheReadInputTokens}）, 出力 ${u.outputTokens}${maxOut}${ctx}`,
+        );
+      }
       if (result.incompleteReason) {
         this.pushProgress(
           job.id,
           `⚠️ 処理が途中で終わった可能性があります（${result.incompleteReason}）。`,
         );
       }
+
+      // Remember the session for future resume, and append to the doc digest so
+      // context survives even when a session can't be resumed later.
+      if (result.sessionId) this.docs.setDocSession(docId, result.sessionId);
+      const digestEntry = result.summary
+        ? `- 「${comment.comment.slice(0, 60)}」→ ${result.summary.slice(0, 160)}`
+        : `- 「${comment.comment.slice(0, 60)}」を反映`;
+      this.docs.appendDigest(docId, digestEntry);
+
       this.queue.markCompleted(job.id, {
         claudeStatus: result.status,
         summary: result.summary || (changed ? "HTMLが更新されました" : "変更なし"),
@@ -125,6 +177,8 @@ export class WorkerService {
         needsFollowUp: result.needsFollowUp,
         incompleteReason: result.incompleteReason,
         sessionId: result.sessionId,
+        usage: result.usage,
+        usedResume: Boolean(resumeId),
       });
     } catch (err) {
       this.queue.markFailed(
