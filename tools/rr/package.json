@@ -3,7 +3,28 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "rr - Requirements Review: HTML成果物ベースのレビュー・修正UI",
+  "description": "rr - Requirements Review: a local UI to review and revise HTML deliverables with Claude Code",
+  "license": "MIT",
+  "author": "sasanquaneuf",
+  "homepage": "https://github.com/uniaim-ticket/requirements-reviewer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uniaim-ticket/requirements-reviewer.git",
+    "directory": "tools/rr"
+  },
+  "bugs": {
+    "url": "https://github.com/uniaim-ticket/requirements-reviewer/issues"
+  },
+  "keywords": [
+    "requirements",
+    "review",
+    "html",
+    "claude-code",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "rr": "./dist/cli/index.js"
   },
@@ -17,10 +38,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@fastify/static": "^7.0.4",
+    "@fastify/static": "^9.1.3",
     "better-sqlite3": "^11.3.0",
     "commander": "^12.1.0",
-    "fastify": "^4.28.1",
+    "fastify": "^5.8.5",
     "node-html-parser": "^6.1.13",
     "yaml": "^2.5.1"
   },
