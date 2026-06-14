@@ -113,9 +113,20 @@ describe("DocumentService multi-document", () => {
     expect(env.docs.get(empty.id)).toBeNull();
   });
 
-  it("refuses to delete the seeded default document", () => {
-    // The default seeded doc has slug "index" (from index.html).
+  it("refuses to delete the very last remaining document", () => {
+    // Only the seeded "index" exists -> can't delete it (nothing left to show).
+    expect(env.docs.list()).toHaveLength(1);
     expect(() => env.docs.delete("index")).toThrow();
+  });
+
+  it("allows deleting the seeded default once another document exists", () => {
+    const dir = env.docs.baseDir();
+    env.docs.create({ title: "本物の要件", html: "<p>real</p>" });
+    expect(env.docs.delete("index")).toBe(true);
+    expect(env.docs.get("index")).toBeNull();
+    // The default HTML file is removed so scanDisk won't re-import it.
+    expect(fs.existsSync(path.join(dir, "index.html"))).toBe(false);
+    expect(env.docs.scanDisk()).toHaveLength(0);
   });
 
   it("switches current away from a deleted current document", () => {

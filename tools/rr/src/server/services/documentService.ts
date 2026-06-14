@@ -265,17 +265,24 @@ export class DocumentService {
 
   /**
    * Delete a document: remove its DB record, comments, jobs, and (optionally)
-   * its HTML file from disk. Refuses to delete the seeded default document.
+   * its HTML file from disk. The seeded default (e.g. "index") CAN be deleted
+   * once other documents exist; we only refuse to delete the very last
+   * document so the app always has something to show. The HTML file is removed
+   * along with the default doc, otherwise scanDisk() would re-import it.
    */
   delete(id: string, opts: { removeFile?: boolean } = {}): boolean {
     const doc = this.get(id);
     if (!doc) return false;
+    if (this.list().length <= 1) {
+      throw new Error(
+        "最後の1件のため削除できません。先に別の要件を作成してから削除してください。",
+      );
+    }
     const defaultSlug = path
       .basename(this.config.document.path)
       .replace(/\.html?$/i, "");
-    if (doc.slug === defaultSlug) {
-      throw new Error("既定（サンプル）ドキュメントは削除できません。");
-    }
+    // Deleting the default doc: also remove its file so it isn't re-imported.
+    const removeFile = doc.slug === defaultSlug ? true : opts.removeFile;
 
     const tx = this.db.transaction(() => {
       // Remove jobs + their job_comments links, comments, then the document.
@@ -293,7 +300,7 @@ export class DocumentService {
 
     // Remove the HTML file if requested (default: remove only if empty/missing).
     const abs = path.resolve(this.root, doc.htmlPath);
-    const shouldRemove = opts.removeFile ?? !doc.hasHtml;
+    const shouldRemove = removeFile ?? !doc.hasHtml;
     if (shouldRemove) {
       try {
         if (fs.existsSync(abs)) fs.unlinkSync(abs);
