@@ -1,0 +1,19 @@
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Dependencies / build (tools/rr has its own .gitignore too)
+node_modules/
+dist/
+
+# rr local runtime state (SQLite DB, WAL/SHM, HTML backups)
+.rr/rr.db
+.rr/rr.db-shm
+.rr/rr.db-wal
+.rr/backups/
