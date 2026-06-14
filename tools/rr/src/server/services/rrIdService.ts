@@ -16,10 +16,38 @@ const REVIEWABLE_TAGS = new Set([
   "pre",
 ]);
 
-// Class-based reviewable units (callout / option card / pro / con / diagram).
-const REVIEWABLE_CLASSES = ["callout", "opt", "pro", "con", "diagram"];
+// Class-based reviewable units (callout / option card / pro / con / diagram /
+// mermaid diagram block / diagram caption).
+const REVIEWABLE_CLASSES = [
+  "callout",
+  "opt",
+  "pro",
+  "con",
+  "diagram",
+  "mermaid",
+  "diagram-caption",
+];
 
 const ID_ATTR = "data-rr-id";
+
+/**
+ * Diagram blocks whose INNER content must never receive auto-injected ids:
+ *  - pre.mermaid / pre.diagram-src: the DSL text; Mermaid rewrites pre.mermaid
+ *    into an <svg>, and extra ids inside would be lost or duplicated.
+ *  - svg: rendered diagram internals are not reviewable units.
+ *  - figure[data-diagram]: pre-rendered SVG wrapper.
+ * The block element itself still gets one id (so the whole diagram is
+ * commentable); only its descendants are skipped.
+ */
+function isDiagramContainer(el: HTMLElement): boolean {
+  const tag = el.tagName?.toLowerCase() ?? "";
+  if (tag === "svg") return true;
+  const classes = (el.getAttribute("class") ?? "").split(/\s+/);
+  if (tag === "pre" && (classes.includes("mermaid") || classes.includes("diagram-src")))
+    return true;
+  if (tag === "figure" && el.hasAttribute("data-diagram")) return true;
+  return false;
+}
 
 interface Counters {
   [prefix: string]: number;
@@ -32,7 +60,9 @@ function prefixForElement(el: HTMLElement): string {
   if (classes.includes("opt")) return "opt";
   if (classes.includes("pro")) return "pro";
   if (classes.includes("con")) return "con";
-  if (classes.includes("diagram")) return "diag";
+  if (classes.includes("diagram-caption")) return "diag-cap";
+  if (classes.includes("diagram") || classes.includes("mermaid")) return "diag";
+  if (tag === "figure" && el.hasAttribute("data-diagram")) return "diag";
   switch (tag) {
     case "h1":
     case "h2":
@@ -60,9 +90,20 @@ function nextId(counters: Counters, prefix: string): string {
   return `${prefix}-${String(n).padStart(3, "0")}`;
 }
 
+/** True if any ANCESTOR (not the element itself) is a diagram container. */
+function hasDiagramAncestor(el: HTMLElement): boolean {
+  let p = el.parentNode as HTMLElement | null;
+  while (p && p.tagName) {
+    if (isDiagramContainer(p)) return true;
+    p = p.parentNode as HTMLElement | null;
+  }
+  return false;
+}
+
 function isReviewable(el: HTMLElement): boolean {
   const tag = el.tagName?.toLowerCase() ?? "";
   if (REVIEWABLE_TAGS.has(tag)) return true;
+  if (tag === "figure" && el.hasAttribute("data-diagram")) return true; // pre-rendered SVG
   const classes = (el.getAttribute("class") ?? "").split(/\s+/);
   return REVIEWABLE_CLASSES.some((c) => classes.includes(c));
 }
@@ -125,11 +166,15 @@ export function injectIds(
     });
   });
 
-  // Then non-table reviewable elements.
+  // Then non-table reviewable elements. The diagram block itself is tagged, but
+  // anything INSIDE a diagram container (pre.mermaid / pre.diagram-src / svg /
+  // figure[data-diagram]) is skipped so we don't pollute the DSL or the SVG that
+  // Mermaid renders in its place.
   root.querySelectorAll("*").forEach((el) => {
     const tag = el.tagName?.toLowerCase() ?? "";
     if (tag === "table" || tag === "tr" || tag === "td" || tag === "th") return;
     if (!isReviewable(el)) return;
+    if (hasDiagramAncestor(el)) return;
     assign(el, () => nextId(counters, prefixForElement(el)));
   });
 

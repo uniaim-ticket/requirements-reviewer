@@ -47,6 +47,15 @@ export interface RrConfig {
     id_attribute: string;
     auto_inject_ids: boolean;
   };
+  diagrams: {
+    /**
+     * Vendored Mermaid version. Must match a directory under
+     * tools/rr/assets/vendor/mermaid/<version>/ (the runtime is committed to the
+     * repo, never loaded from a CDN). The server warns at startup if the
+     * vendored runtime for this version is missing.
+     */
+    mermaid_version: string;
+  };
 }
 
 export const DEFAULT_CONFIG: RrConfig = {
@@ -76,6 +85,9 @@ export const DEFAULT_CONFIG: RrConfig = {
   review: {
     id_attribute: "data-rr-id",
     auto_inject_ids: true,
+  },
+  diagrams: {
+    mermaid_version: "10.9.1",
   },
 };
 
@@ -127,6 +139,7 @@ export function loadConfig(root: string): RrConfig {
     queue: { ...DEFAULT_CONFIG.queue, ...raw.queue },
     server: { ...DEFAULT_CONFIG.server, ...raw.server },
     review: { ...DEFAULT_CONFIG.review, ...raw.review },
+    diagrams: { ...DEFAULT_CONFIG.diagrams, ...raw.diagrams },
   };
 }
 

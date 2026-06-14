@@ -40,6 +40,23 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   queueRoutes(app, ctx);
   eventRoutes(app, ctx);
 
+  // Serve the vendored diagram runtimes (Mermaid etc.) from the repo at a
+  // base-path-relative route. Generated HTML references them via relative paths
+  // ("./vendor/...") resolved against the <base href> rr injects into the
+  // iframe, so this works behind a sub-path reverse proxy. No CDN, same origin.
+  // assets/ sits two levels above this file in BOTH src/server (dev) and
+  // dist/server (build), so the relative resolve is correct either way.
+  const assetsDir = path.resolve(__dirname, "../../assets");
+  if (fs.existsSync(assetsDir)) {
+    await app.register(fastifyStatic, {
+      root: assetsDir,
+      prefix: "/assets/",
+      decorateReply: false, // a fastifyStatic instance is registered below for /app/
+      immutable: true,
+      maxAge: "1y", // version-pinned dirs => safe to cache aggressively
+    });
+  }
+
   // Serve the built client from dist/client at /app (vite base = /app/).
   const clientDir = path.resolve(__dirname, "../client");
   if (fs.existsSync(clientDir)) {
@@ -80,6 +97,27 @@ function watchDocument(ctx: AppContext): () => void {
   return () => watcher.close();
 }
 
+/**
+ * Warn (don't fail) if the Mermaid version the templates point at isn't
+ * vendored. Diagrams would silently fail to render otherwise; the fix is
+ * documented in the message (run scripts/vendor-mermaid.sh).
+ */
+function warnIfMermaidMissing(ctx: AppContext): void {
+  const version = ctx.config.diagrams.mermaid_version;
+  const file = path.resolve(
+    __dirname,
+    `../../assets/vendor/mermaid/${version}/mermaid.min.js`,
+  );
+  if (!fs.existsSync(file)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `⚠️ Mermaid ${version} の同梱ファイルが見つかりません (${path.relative(process.cwd(), file)})。\n` +
+        `   図は描画されません。次を実行して取り込んでください:\n` +
+        `   tools/rr/scripts/vendor-mermaid.sh ${version}`,
+    );
+  }
+}
+
 export interface StartOptions {
   /** Override the configured port. Use 0 to let the OS pick a free port. */
   port?: number;
@@ -100,6 +138,7 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   // forceCloseConnections ensures lingering SSE/keep-alive sockets don't keep
   // the process alive on shutdown (why Ctrl+C sometimes "hung").
   const app = await buildServer(ctx);
+  warnIfMermaidMissing(ctx);
   const stopWatch = watchDocument(ctx);
 
   const { host } = ctx.config.server;

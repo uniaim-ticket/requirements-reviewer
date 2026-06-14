@@ -137,7 +137,35 @@ server:
 review:
   id_attribute: data-rr-id
   auto_inject_ids: true
+diagrams:
+  mermaid_version: 10.9.1     # 同梱した Mermaid のバージョン（CDN は使わない）
 ```
+
+## 図（Mermaid / C4）の扱い
+
+成果物に図を入れる場合は **Mermaid** を使い、ランタイムは**リポジトリ同梱（vendor）の
+ファイルを相対パスで読み込みます。CDN 直参照は禁止**です（rr の iframe で XSS が成立すると
+Claude Code の権限経路に波及しうるため）。
+
+- 規約の詳細は `rr init` が生成する `.rr/prompts/diagrams.md` にまとまっています。
+  生成・反映プロンプト本体は肥大化させず、図が必要なときだけこのファイルを参照する作りです。
+- 図ブロックは `<pre class="mermaid" data-rr-id="diag-XXX">…DSL…</pre>` の形にします。
+  rr は図ブロック自体にだけコメントを許可し、内部 SVG/DSL には `data-rr-id` を付与しません。
+- iframe 描画時に rr が `<base href>` を動的注入するため、成果物 HTML には `<base>` を書きません。
+  パスは相対のみ（先頭 `/` 禁止）。リバースプロキシのサブパス配信でも動作します。
+
+### Mermaid の取り込み・更新
+
+同梱ファイルは固定バージョン + SHA-384（SRI）で管理します。更新時は次を実行し、
+差分を PR でレビューしてからコミットします。
+
+```bash
+tools/rr/scripts/vendor-mermaid.sh 10.9.1
+# -> tools/rr/assets/vendor/mermaid/<version>/mermaid.min.js と vendor.lock を更新
+```
+
+`.rr/config.yml` の `diagrams.mermaid_version` を同梱バージョンと一致させてください
+（不一致だと `rr serve` 起動時に警告が出ます）。
 
 ## Claude のパーミッションについて（重要）
 
@@ -225,8 +253,11 @@ npm test          # rr-id注入 / コメント / Queue / Claude実行mock
 
 - 認証・複数ユーザー同時編集・クラウド公開なし
 - 単一ドキュメント（`docs/requirements/index.html`）のみ
-- `diagram_line`（diagram内の行単位コメント）は未実装。`.diagram` 全体コメントのみ
+- 図へのコメントは図ブロック（`pre.mermaid` / `figure[data-diagram]`）全体に対してのみ。
+  Mermaid ノード単位や図内の行単位コメント（`diagram_line`）は未実装で、説明文は直下の
+  `<p class="diagram-caption">` に対してコメントする運用
 - 列単位・範囲指定コメントなし
-- Mermaidノード単位コメント・SVG編集・PR作成なし
+- SVG編集・PR作成なし
+- Structurizr のライブレンダリングは非対応（C4 風 Mermaid、必要時は事前レンダリング SVG を使う）
 
 コメント種別とエージェント実行部分は拡張しやすい構造にしてあります。

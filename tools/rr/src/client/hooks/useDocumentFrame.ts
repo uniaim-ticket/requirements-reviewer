@@ -27,9 +27,37 @@ function classifyTarget(el: Element): TargetType {
   const cls = el.classList;
   if (tag === "tr") return "table_row";
   if (tag === "td" || tag === "th") return "table_cell";
-  if (cls.contains("diagram")) return "diagram";
+  // Mermaid blocks (pre.mermaid), pre-rendered SVG (figure[data-diagram]) and
+  // the legacy .diagram block are all "diagram" targets.
+  if (
+    cls.contains("diagram") ||
+    cls.contains("mermaid") ||
+    el.hasAttribute("data-diagram")
+  )
+    return "diagram";
+  if (cls.contains("diagram-caption")) return "diagram_line";
   if (tag === "li" || tag === "p") return "line";
   return "block";
+}
+
+// Inject a <base href> into the document so relative asset URLs (e.g. the
+// vendored Mermaid runtime at "./vendor/...") resolve. srcDoc runs on the
+// `about:srcdoc` origin which has NO base, so without this, relative URLs break.
+// The value is derived from the parent frame's baseURI (NOT a leading-slash
+// absolute path) so it stays correct behind a sub-path reverse proxy. Vendored
+// assets are served one level up from the app at ".../assets/"; the app lives
+// at ".../app/". Generated HTML must NOT contain its own <base> (would defeat
+// this injection).
+function injectBaseHref(html: string): string {
+  const baseHref = new URL("../assets/", document.baseURI).toString();
+  const tag = `<base href="${baseHref}">`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/(<head[^>]*>)/i, `$1${tag}`);
+  }
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/(<html[^>]*>)/i, `$1<head>${tag}</head>`);
+  }
+  return tag + html;
 }
 
 interface UseDocumentFrameArgs {
@@ -47,7 +75,9 @@ export function useDocumentFrame({ comments, onPickTarget }: UseDocumentFrameArg
 
   const reload = useCallback(async () => {
     const res = await api.getDocument();
-    setHtml(res.html);
+    // Inject <base href> so the iframe (about:srcdoc, no base) can resolve the
+    // vendored diagram runtime referenced by relative "./vendor/..." paths.
+    setHtml(injectBaseHref(res.html));
     setIdAttr(res.idAttribute);
     setExists(res.exists);
   }, []);
@@ -78,6 +108,9 @@ export function useDocumentFrame({ comments, onPickTarget }: UseDocumentFrameArg
 
     const reviewable = doc.querySelectorAll(`[${idAttr}]`);
     reviewable.forEach((el) => {
+      // Don't put comment UI on elements inside a rendered SVG (Mermaid output):
+      // comments attach to the diagram block as a whole, not its inner shapes.
+      if (el.closest("svg")) return;
       const node = el as HTMLElement;
       node.addEventListener("mouseenter", () => {
         node.classList.add("rr-hover");

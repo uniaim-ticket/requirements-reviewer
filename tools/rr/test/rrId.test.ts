@@ -44,6 +44,34 @@ describe("injectIds", () => {
     expect(out).toContain('data-rr-id="opt-001"');
     expect(out).toContain('data-rr-id="pro-001"');
   });
+
+  it("tags a mermaid block but never its inner DSL lines", () => {
+    const html =
+      '<pre class="mermaid">\nflowchart LR\n  A --> B\n</pre><p>後続</p>';
+    const { html: out } = injectIds(html);
+    // The pre.mermaid block itself is a reviewable diagram unit.
+    expect(out).toContain('data-rr-id="diag-001"');
+    // The DSL inside must stay untouched (no ids, no escaping).
+    expect(out).toContain("A --> B");
+    expect(out).toContain('data-rr-id="p-001"'); // sibling still tagged
+  });
+
+  it("does not inject ids inside a rendered svg / figure[data-diagram]", () => {
+    const html =
+      '<figure data-diagram><svg><text>x</text></svg></figure>' +
+      '<pre class="diagram-src">C4Context</pre>';
+    const { html: out } = injectIds(html);
+    expect(out).toContain('data-rr-id="diag-001"'); // figure tagged
+    expect(out).not.toContain('data-rr-id="el-'); // <text> etc. untouched
+    // pre.diagram-src is tagged as a block but its content is left intact.
+    expect(out).toContain("C4Context");
+  });
+
+  it("tags a diagram caption with its own prefix", () => {
+    const html = '<p class="diagram-caption">図1</p>';
+    const { html: out } = injectIds(html);
+    expect(out).toContain('data-rr-id="diag-cap-001"');
+  });
 });
 
 describe("extractTarget", () => {
